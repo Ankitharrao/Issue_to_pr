@@ -7,16 +7,37 @@ const octokit = new Octokit({
 
 //getIssue()
 async function getIssue(issueNumber) {
-  const issue = await octokit.issues.get({
+  try {
+    const issue = await octokit.issues.get({
+      owner: process.env.REPO_OWNER,
+      repo: process.env.REPO_NAME,
+      issue_number: issueNumber
+    });
+
+    return {
+      title: issue.data.title,
+      body: issue.data.body
+    };
+
+  } catch (error) {
+    console.error("Error fetching issue:", error.message);
+  }
+}
+
+//getAllIssues()
+async function getAllIssues() {
+
+  const { data } = await octokit.issues.listForRepo({
     owner: process.env.REPO_OWNER,
     repo: process.env.REPO_NAME,
-    issue_number: issueNumber
+    state: "open"
   });
 
-  return {
-    title: issue.data.title,
-    body: issue.data.body
-  };
+  return data.map(issue => ({
+    number: issue.number,
+ 
+   title: issue.title
+  }));
 }
 
 
@@ -117,6 +138,7 @@ async function createPullRequest(branchName, title, body) {
 
 module.exports = {
   getIssue,
+  getAllIssues,
   getRepoFiles,
   createBranch,
   pushFiles,
