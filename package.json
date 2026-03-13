@@ -1,0 +1,26 @@
+{
+  "name": "issue_to_pr",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ankitharrao/Issue_to_pr.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/Ankitharrao/Issue_to_pr/issues"
+  },
+  "homepage": "https://github.com/Ankitharrao/Issue_to_pr#readme",
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@octokit/rest": "^22.0.1",
+    "dotenv": "^17.3.1"
+  }
+}
