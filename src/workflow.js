@@ -34,12 +34,16 @@ const proposedChanges = await ai.generateCodeFix(issue);  // ← no repoFiles ar
     console.log("\n🌿 STEP 5: Creating branch and pushing changes...");
     const branchName = `auto-fix/issue-${issueNumber}-${Date.now()}`;
     await github.createBranch(branchName);
-    await github.pushFiles(branchName, proposedChanges);
-
+    for (const fix of proposedChanges) {
+  await github.pushFiles(fix.path, fix.newContent, branchName);
+}
     // STEP 6: Create Pull Request
     console.log("\n📬 STEP 6: Creating Pull Request...");
-    const prUrl = await github.createPullRequest(branchName, issue, reviewFeedback);
-
+    const prUrl = await github.createPullRequest(
+  branchName,
+  `Fix: ${issue.title}`,
+  `## AI Generated Fix\n\nCloses #${issueNumber}\n\n## AI Review\n\n${reviewFeedback}`
+);
     console.log("\n" + "=".repeat(50));
     console.log("🎉 WORKFLOW COMPLETE!");
     console.log(`✅ Pull Request: ${prUrl}`);
@@ -60,8 +64,7 @@ async function runPrioritizedWorkflow() {
   console.log("\n🚀 Starting Prioritized Issue-to-PR Workflow");
   console.log("=".repeat(50));
 
-  try {
-    // STEP 1: Get all open issues
+  try {    // STEP 1: Get all open issues
     console.log("\n📋 STEP 1: Fetching all open issues...");
     const allIssues = await github.getAllIssues();
     console.log(`   Found ${allIssues.length} open issues`);

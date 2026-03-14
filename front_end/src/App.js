@@ -1,260 +1,144 @@
-import { useState, useEffect } from "react";
-import "./styles/autopR.css";
-
-const steps = [
-  "Fetch Issues",
-  "Analyze Repository",
-  "Generate Code Fix",
-  "Create Branch",
-  "Commit Fix",
-  "Open Pull Request"
-];
-
+import { useState, useRef } from "react";
+import TopBar from "./components/TopBar";
+import RepoConfig from "./components/RepoConfig";
+import PipelineSteps from "./components/PipelineSteps";
+import ResultsPanel from "./components/ResultsPanel";
+import StatsPanel from "./components/StatsPanel";
+import "./App.css";
+import "./styles/autoRn.css";
 function App() {
+  // ── shared state ──
+  const [status, setStatus]       = useState("idle");    // idle | running | done | error
+  const [stepIndex, setStepIndex] = useState(-1);
+  const [stepMsgs, setStepMsgs]   = useState({});
+  const [prUrl, setPrUrl]         = useState("");
+  const [review, setReview]       = useState("");
+  const [diff, setDiff]           = useState([]);
+  const [error, setError]         = useState("");
+  const [stats, setStats]         = useState({ runs: 0, prs: 0, failed: 0 });
 
-  const [running,setRunning] = useState(false);
-  const [step,setStep] = useState(-1);
+  const readerRef = useRef(null);
 
-  const [dark,setDark] = useState(
-    localStorage.getItem("theme") === "dark"
-  );
-
-  /* ---------- PIPELINE ---------- */
-
-  function startPipeline(){
-
-    if(running) return;
-
-    setRunning(true);
-    setStep(0);
-
-    steps.forEach((_,i)=>{
-      setTimeout(()=>{
-        setStep(i);
-        if(i === steps.length-1) setRunning(false);
-      }, i*1200);
-    });
-
+  // ── map log messages to step index ──
+  function msgToStep(data) {
+    if (data.step === 1 || data.done === 1) return 0;
+    if (data.priority !== undefined)        return 1;
+    if (data.step === 2 || data.done === 2) return 1;
+    if (data.step === 3 || data.done === 3) return 2;
+    if (data.step === 4 || data.done === 4) return 3;
+    if (data.step === 5 || data.done === 5) return 4;
+    if (data.step === 6 || data.done === 6) return 5;
+    if (data.prUrl)                         return 6;
+    return -1;
   }
 
+  // ── run pipeline ──
+  async function handleRun(owner, repo, issueNum) {
+    if (status === "running") return;
 
-  /* ---------- THEME TOGGLE ---------- */
+    // reset
+    setStatus("running");
+    setStepIndex(0);
+    setStepMsgs({});
+    setPrUrl("");
+    setReview("");
+    setDiff([]);
+    setError("");
+    setStats(s => ({ ...s, runs: s.runs + 1 }));
 
-  function toggleTheme(){
+    try {
+      const response = await fetch("/api/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repo: `${owner}/${repo}`,
+          issueNumber: issueNum ? parseInt(issueNum) : null,
+        }),
+      });
 
-    const newTheme = !dark;
+      const reader = response.body.getReader();
+      readerRef.current = reader;
+      const decoder = new TextDecoder();
 
-    setDark(newTheme);
+      while (true) {
+        const { done: streamDone, value } = await reader.read();
+        if (streamDone) break;
 
-    if(newTheme){
-      document.body.classList.add("dark");
-      localStorage.setItem("theme","dark");
-    }else{
-      document.body.classList.remove("dark");
-      localStorage.setItem("theme","light");
+        const text = decoder.decode(value);
+        const lines = text.split("\n").filter(l => l.startsWith("data:"));
+
+        for (const line of lines) {
+          try {
+            const data = JSON.parse(line.replace("data:", "").trim());
+
+            const idx = msgToStep(data);
+            if (idx >= 0) {
+              setStepIndex(idx);
+              if (data.msg) {
+                setStepMsgs(prev => ({ ...prev, [idx]: data.msg }));
+              }
+            }
+
+            if (data.prUrl)   { setPrUrl(data.prUrl); }
+            if (data.review)  { setReview(data.review); }
+            if (data.diff)    { setDiff(data.diff); }
+
+            if (data.complete) {
+              setStatus("done");
+              setStepIndex(7);
+              setStats(s => ({ ...s, prs: s.prs + 1 }));
+            }
+
+            if (data.error) {
+              setError(data.msg || "Something went wrong");
+              setStatus("error");
+              setStats(s => ({ ...s, failed: s.failed + 1 }));
+            }
+
+          } catch (e) { /* skip malformed */ }
+        }
+      }
+    } catch (err) {
+      setError(err.message);
+      setStatus("error");
+      setStats(s => ({ ...s, failed: s.failed + 1 }));
     }
-
   }
 
-  /* apply theme on reload */
-
-  useEffect(() => {
-    if(dark){
-      document.body.classList.add("dark");
-    }
-  }, []);
-
-
+  function handleStop() {
+    if (readerRef.current) readerRef.current.cancel();
+    setStatus("idle");
+  }
 
   return (
-
     <div className="wrap">
-
-      {/* TOP BAR */}
-
-      <div className="topbar">
-
-        <div className="topbar-left">
-          <div className="brand-icon"></div>
-          <span className="brand-name">Bug2PR</span>
+      <TopBar status={status} />
+      <div className="main container">
+        <div className="left-col">
+          <StatsPanel stats={stats} />
+          <RepoConfig
+            status={status}
+            onRun={handleRun}
+            onStop={handleStop}
+          />
+          <PipelineSteps
+            stepIndex={stepIndex}
+            stepMsgs={stepMsgs}
+            status={status}
+          />
         </div>
-
-        <button className="theme-toggle" onClick={toggleTheme}>
-          {dark ? "☀️" : "🌙"}
-        </button>
-
+        <div className="right-col">
+          <ResultsPanel
+            status={status}
+            prUrl={prUrl}
+            review={review}
+            diff={diff}
+            error={error}
+          />
+        </div>
       </div>
-
-
-      {/* HERO */}
-
-      <div className="hero">
-
-        <div className="hero-tag">
-          AUTONOMOUS DEVELOPMENT SYSTEM
-        </div>
-
-        <h1>
-          From <span>issue</span> to pull request,
-          <br/>
-          fully automated
-        </h1>
-
-        <p>
-          AI agents interpret, analyze, generate and review code —
-          then open a pull request on GitHub automatically.
-        </p>
-
-      </div>
-
-
-      {/* MAIN DASHBOARD */}
-
-      <div className="dashboard container">
-
-
-        {/* REPOSITORY CONFIG */}
-
-        <div className="config-card">
-
-          <div className="config-card-top">
-            Repository Configuration
-          </div>
-
-          <div className="config-card-body">
-
-            <div className="field-row">
-
-              <div className="field">
-                <label>Owner</label>
-                <input placeholder="octocat"/>
-              </div>
-
-              <div className="field">
-                <label>Repository</label>
-                <input placeholder="hello-world"/>
-              </div>
-
-            </div>
-
-            <div className="field">
-              <label>Issue Number (optional)</label>
-              <input placeholder="Leave blank for all issues"/>
-            </div>
-
-            <button className="run-btn" onClick={startPipeline}>
-              {running ? "Running..." : "Run Automation"}
-            </button>
-
-          </div>
-
-        </div>
-
-
-
-        {/* PIPELINE */}
-
-        <div className="pipeline-card">
-
-          <h3>Automation Pipeline</h3>
-
-          <div className="pipeline-steps">
-
-            {steps.map((s,i)=>{
-
-              let status="pending";
-
-              if(i < step) status="done";
-              if(i === step) status="running";
-
-              const icons = ["📥","🧠","⚡","🌿","💾","🚀"];
-
-              return(
-
-                <div key={i} className={`pipe-step ${status}`}>
-
-                  <div className="pipe-icon">
-                    {icons[i]}
-                  </div>
-
-                  <span className="pipe-text">{s}</span>
-
-                </div>
-
-              );
-
-            })}
-
-          </div>
-
-        </div>
-
-      </div>
-
-
-
-      {/* AI REVIEW + DIFF */}
-
-      <div className="analysis-section container">
-
-        <div className="review-panel">
-
-          <h3>AI Code Review</h3>
-
-          <div className="review-item">
-            <span className="review-tag bug">BUG</span>
-            Missing divide by zero check
-          </div>
-
-          <div className="review-item">
-            <span className="review-tag improvement">IMPROVEMENT</span>
-            Add input validation
-          </div>
-
-          <div className="review-item">
-            <span className="review-tag pass">VERDICT</span>
-            Changes look safe to merge
-          </div>
-
-        </div>
-
-
-        <div className="diff-panel">
-
-          <h3>Code Diff</h3>
-
-          <div className="diff-view">
-
-            <div className="diff-line removed">
-              - function divide(a,b) &#123; return a/b; &#125;
-            </div>
-
-            <div className="diff-line added">
-              + function divide(a,b) &#123;
-            </div>
-
-            <div className="diff-line added">
-              + if(b === 0) throw new Error("Cannot divide by zero");
-            </div>
-
-            <div className="diff-line added">
-              + return a/b;
-            </div>
-
-            <div className="diff-line added">
-              + &#125;
-            </div>
-
-          </div>
-
-        </div>
-
-      </div>
-
     </div>
-
   );
-
 }
 
 export default App;
